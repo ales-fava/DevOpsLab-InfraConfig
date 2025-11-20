@@ -1,0 +1,91 @@
+---
+- name: Configurar Infraestructura DevOps y GitOps
+  hosts: minikube_host
+  become: true
+  vars:
+    kubectl_version: "v1.30.0"
+    minikube_version: "latest"
+    arch: "amd64"
+    # Variable para definir el puerto externo de ArgoCD
+    argocd_nodeport: 30443 
+
+  tasks:
+    # ... (Tareas previas de instalación de Docker/Podman/Kubectl se mantienen igual) ...
+    
+    # [AQUÍ EMPIEZAN LAS TAREAS PREVIAS RESUMIDAS PARA CONTEXTO]
+    - name: Actualizar paquetes e instalar dependencias base
+      apt:
+        name: [curl, git, conntrack, socat, podman]
+        state: present
+        update_cache: yes
+
+    - name: Descargar e instalar Kubectl
+      get_url:
+        url: "https://dl.k8s.io/release/{{ kubectl_version }}/bin/linux/{{ arch }}/kubectl"
+        dest: /usr/local/bin/kubectl
+        mode: '0755'
+
+    - name: Descargar e instalar Minikube
+      get_url:
+        url: "https://storage.googleapis.com/minikube/releases/{{ minikube_version }}/minikube-linux-{{ arch }}"
+        dest: /usr/local/bin/minikube
+        mode: '0755'
+
+    - name: Añadir usuario azureuser a sudoers sin pass (para driver podman)
+      lineinfile:
+        path: /etc/sudoers.d/azureuser
+        line: 'azureuser ALL=(ALL) NOPASSWD: ALL'
+        create: yes
+        mode: '0440'
+
+    # --- INICIO Y CONFIGURACIÓN DE MINIKUBE ---
+    - name: Iniciar Minikube (como usuario azureuser)
+      become: yes
+      become_user: azureuser
+      shell: |
+        minikube start --driver=podman --container-runtime=cri-o --force --addons=ingress
+      register: minikube_start
+      # Esto evita que falle si ya está corriendo, aunque 'start' es idempotente
+      changed_when: "'Done' in minikube_start.stdout"
+
+    # --- INSTALACIÓN Y CONFIGURACIÓN DE ARGOCD ---
+    
+    - name: Crear namespace para ArgoCD
+      become: yes
+      become_user: azureuser
+      shell: kubectl create namespace argocd --dry-run=client -o yaml | kubectl apply -f -
+
+    - name: Desplegar manifiesto oficial de ArgoCD
+      become: yes
+      become_user: azureuser
+      shell: |
+        kubectl apply -n argocd -f https://raw.githubusercontent.com/argoproj/argo-cd/stable/manifests/install.yaml
+
+    - name: Esperar a que ArgoCD Server esté listo (Timeout 5m)
+      become: yes
+      become_user: azureuser
+      shell: |
+        kubectl wait --for=condition=available deployment/argocd-server -n argocd --timeout=300s
+
+    - name: Exponer ArgoCD vía NodePort (Puerto {{ argocd_nodeport }})
+      become: yes
+      become_user: azureuser
+      # Parcheamos el servicio para convertirlo de ClusterIP a NodePort y fijamos el puerto
+      shell: |
+        kubectl patch svc argocd-server -n argocd -p '{"spec": {"type": "NodePort", "ports": [{"port": 443, "targetPort": 8080, "nodePort": {{ argocd_nodeport }}}]}}'
+
+    - name: Obtener contraseña inicial de admin de ArgoCD
+      become: yes
+      become_user: azureuser
+      shell: |
+        kubectl -n argocd get secret argocd-initial-admin-secret -o jsonpath="{.data.password}" | base64 -d
+      register: argocd_pass
+
+    - name: Mostrar datos de acceso a ArgoCD
+      debug:
+        msg: 
+          - "ArgoCD instalado correctamente."
+          - "URL de acceso: https://{{ ansible_host }}:{{ argocd_nodeport }}"
+          - "Usuario: admin"
+          - "Contraseña: {{ argocd_pass.stdout }}"
+          - "IMPORTANTE: Acepta el riesgo de certificado SSL autofirmado en el navegador."

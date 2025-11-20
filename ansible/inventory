@@ -1,0 +1,5 @@
+[minikube_host]
+# ESTE ARCHIVO ES UNA PLANTILLA.
+# En local: Reemplaza la IP abajo manualmente.
+# En GitHub Actions: El pipeline sobreescribe esto automáticamente.
+X.X.X.X ansible_user=azureuser ansible_ssh_private_key_file=~/.ssh/id_rsa
