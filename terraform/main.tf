@@ -23,7 +23,9 @@ resource "azurerm_public_ip" "vm_ip" {
   name                = "${var.prefix}-pip"
   location            = azurerm_resource_group.main.location
   resource_group_name = azurerm_resource_group.main.name
-  allocation_method   = "Static"
+
+  allocation_method   = "Static"   # Standard requiere Static
+  sku                 = "Standard" # Soluciona el error de cuota
 }
 
 resource "azurerm_network_security_group" "nsg" {
