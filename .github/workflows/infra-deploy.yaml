@@ -1,0 +1,103 @@
+name: Deploy Infrastructure & Configuration
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - 'terraform/**'
+      - 'ansible/**'
+  workflow_dispatch: # Permite ejecución manual desde la UI
+
+env:
+  # Variables de entorno para Terraform (usa los secretos configurados)
+  ARM_CLIENT_ID: ${{ secrets.AZURE_CLIENT_ID }}
+  ARM_CLIENT_SECRET: ${{ secrets.AZURE_CLIENT_SECRET }}
+  ARM_SUBSCRIPTION_ID: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+  ARM_TENANT_ID: ${{ secrets.AZURE_TENANT_ID }}
+  TF_VAR_ssh_public_key: ${{ secrets.SSH_PUBLIC_KEY }}
+
+jobs:
+  terraform:
+    name: 'Terraform Provisioning'
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: ./terraform
+    
+    outputs:
+      vm_public_ip: ${{ steps.tf_output.outputs.ip }}
+
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: "1.7.0"
+
+      - name: Terraform Init
+        run: terraform init
+
+      - name: Terraform Format & Validate
+        run: |
+          terraform fmt -check
+          terraform validate
+
+      - name: Terraform Plan
+        run: terraform plan -out=tfplan
+
+      - name: Terraform Apply
+        # Solo aplica si es la rama main
+        if: github.ref == 'refs/heads/main'
+        run: terraform apply -auto-approve tfplan
+
+      - name: Get VM IP Output
+        id: tf_output
+        if: github.ref == 'refs/heads/main'
+        # Extrae la IP definida en outputs.tf y la pasa al siguiente job
+        run: |
+          IP=$(terraform output -raw public_ip)
+          echo "ip=$IP" >> $GITHUB_OUTPUT
+
+  ansible:
+    name: 'Ansible Configuration'
+    needs: terraform # Espera a que Terraform termine
+    runs-on: ubuntu-latest
+    if: github.ref == 'refs/heads/main'
+    defaults:
+      run:
+        working-directory: ./ansible
+
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Setup Python & Ansible
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.x'
+      
+      - name: Install Ansible
+        run: pip install ansible
+
+      - name: Setup SSH Key
+        run: |
+          mkdir -p ~/.ssh
+          echo "${{ secrets.ANSIBLE_SSH_PRIVATE_KEY }}" > ~/.ssh/id_rsa
+          chmod 600 ~/.ssh/id_rsa
+          # Deshabilita Host Key Checking para evitar el prompt de "Are you sure?"
+          echo "Host *" > ~/.ssh/config
+          echo " StrictHostKeyChecking no" >> ~/.ssh/config
+
+      - name: Create Inventory File
+        # Crea el archivo inventory dinámicamente con la IP que nos dio Terraform
+        run: |
+          echo "[minikube_host]" > inventory
+          echo "${{ needs.terraform.outputs.vm_public_ip }} ansible_user=azureuser ansible_ssh_private_key_file=~/.ssh/id_rsa" >> inventory
+          cat inventory
+
+      - name: Run Ansible Playbook
+        run: |
+          ansible-playbook -i inventory playbook.yml
