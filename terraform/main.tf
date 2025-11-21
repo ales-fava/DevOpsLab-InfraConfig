@@ -1,29 +1,3 @@
-# This block defines the required providers and their versions.
-terraform {
-  required_providers {
-    # Specify Azure Resource Manager provider
-    azurerm = {
-      # Use the official HashiCorp azurerm provider
-      source = "hashicorp/azurerm"
-      # Specify a version range for the provider
-      version = "~> 3.0.2"
-    }
-  }
-
-  backend "azurerm" {
-    resource_group_name  = "rg-terraform-tfstate"
-    storage_account_name = "sttfstate58286"
-    container_name       = "tfstate"
-    key                  = "devops-lab.tfstate"
-  }
-}
-
-# This block configures the Azure Resource Manager provider.
-provider "azurerm" {
-  # Leave the features block empty as we don't use any specific features in this example.
-  features { }
-}
-
 resource "azurerm_resource_group" "main" {
   name     = "${var.prefix}-rg"
   location = var.location
@@ -68,7 +42,7 @@ resource "azurerm_network_security_group" "nsg" {
     source_address_prefix      = "*" # En prod, pon tu IP pública aquí
     destination_address_prefix = "*"
   }
-  
+
   # Puertos para NodePort de Kubernetes (Rango por defecto 30000-32767)
   security_rule {
     name                       = "K8s-NodePorts"
@@ -78,7 +52,7 @@ resource "azurerm_network_security_group" "nsg" {
     protocol                   = "Tcp"
     source_port_range          = "*"
     destination_port_range     = "30000-32767"
-    source_address_prefix      = "*" 
+    source_address_prefix      = "*"
     destination_address_prefix = "*"
   }
 }
