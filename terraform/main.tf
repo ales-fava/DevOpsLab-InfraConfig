@@ -125,8 +125,8 @@ resource "random_id" "kv_suffix" {
   byte_length = 4
 }
 
-resource "azurerm_app_configuration" "appconf" {
-  name                = "${var.prefix}-appconf"
+resource "azurerm_app_configuration" "app-conf" {
+  name                = "${var.prefix}-app-conf"
   resource_group_name = azurerm_resource_group.main.name
   location            = azurerm_resource_group.main.location
   sku                 = "free" # Capa gratuita suficiente para dev
