@@ -14,7 +14,7 @@ terraform {
     resource_group_name  = "rg-terraform-tfstate"
     storage_account_name = "sttfstate58286"
     container_name       = "tfstate"
-    key                  = "terraform.tfstate"
+    key                  = "devops-lab.tfstate"
   }
 }
 
