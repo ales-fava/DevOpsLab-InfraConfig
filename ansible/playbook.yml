@@ -1,61 +1,92 @@
 ---
-- name: Configurar Infraestructura DevOps y GitOps
+- name: Configurar Infraestructura DevOps (Docker + K8s)
   hosts: minikube_host
   become: true
   vars:
     kubectl_version: "v1.30.0"
     minikube_version: "latest"
     arch: "amd64"
-    # Variable para definir el puerto externo de ArgoCD
-    argocd_nodeport: 30443 
+    argocd_nodeport: 30443
 
   tasks:
-    # ... (Tareas previas de instalación de Docker/Podman/Kubectl se mantienen igual) ...
-    
-    # [AQUÍ EMPIEZAN LAS TAREAS PREVIAS RESUMIDAS PARA CONTEXTO]
-    - name: Actualizar paquetes e instalar dependencias base
+    - name: Actualizar paquetes del sistema
       apt:
-        name: [curl, git, conntrack, socat, podman]
-        state: present
         update_cache: yes
+        upgrade: dist
 
-    - name: Descargar e instalar Kubectl
+    - name: Instalar dependencias básicas del sistema
+      apt:
+        name:
+          - curl
+          - git
+          - apt-transport-https
+          - conntrack  # Indispensable para K8s
+          - socat
+          - ca-certificates
+          - gnupg
+        state: present
+
+    # --- INSTALACIÓN DE DOCKER ---
+    - name: Descargar script de instalación de Docker
+      get_url:
+        url: https://get.docker.com
+        dest: /tmp/install_docker.sh
+        mode: '0700'
+
+    - name: Ejecutar script de instalación de Docker
+      shell: /tmp/install_docker.sh
+
+    - name: Añadir usuario azureuser al grupo docker
+      user:
+        name: azureuser
+        groups: docker
+        append: yes
+
+    # IMPORTANTE: Reiniciar conexión o socket para que aplique el grupo docker
+    # En Ansible, lo solucionamos asegurando que los comandos de minikube 
+    # usen el grupo correcto implícitamente o reiniciando la sesión.
+
+    # --- INSTALACIÓN DE KUBECTL ---
+    - name: Descargar Kubectl
       get_url:
         url: "https://dl.k8s.io/release/{{ kubectl_version }}/bin/linux/{{ arch }}/kubectl"
         dest: /usr/local/bin/kubectl
         mode: '0755'
 
-    - name: Descargar e instalar Minikube
+    # --- INSTALACIÓN DE MINIKUBE ---
+    - name: Descargar Minikube
       get_url:
         url: "https://storage.googleapis.com/minikube/releases/{{ minikube_version }}/minikube-linux-{{ arch }}"
         dest: /usr/local/bin/minikube
         mode: '0755'
 
-    - name: Añadir usuario azureuser a sudoers sin pass (para driver podman)
-      lineinfile:
-        path: /etc/sudoers.d/azureuser
-        line: 'azureuser ALL=(ALL) NOPASSWD: ALL'
-        create: yes
-        mode: '0440'
-
-    # --- INICIO Y CONFIGURACIÓN DE MINIKUBE ---
-    - name: Iniciar Minikube (como usuario azureuser)
+    # --- INICIAR CLUSTER ---
+    - name: Iniciar Minikube con Docker Driver
+      # Ejecutamos como el usuario azureuser, NO como root
       become: yes
       become_user: azureuser
       shell: |
-        minikube start --driver=podman --container-runtime=cri-o --force --addons=ingress
+        minikube start --driver=docker --addons=ingress --addons=metrics-server
       register: minikube_start
-      # Esto evita que falle si ya está corriendo, aunque 'start' es idempotente
       changed_when: "'Done' in minikube_start.stdout"
+      # environment: se asegura de que pille los paths correctos
+      environment:
+        HOME: /home/azureuser
 
-    # --- INSTALACIÓN Y CONFIGURACIÓN DE ARGOCD ---
-    
+    - name: Configurar alias de kubectl
+      become: yes
+      become_user: azureuser
+      lineinfile:
+        path: /home/azureuser/.bashrc
+        line: 'alias k=kubectl'
+
+    # --- ARGOCD ---
     - name: Crear namespace para ArgoCD
       become: yes
       become_user: azureuser
       shell: kubectl create namespace argocd --dry-run=client -o yaml | kubectl apply -f -
 
-    - name: Desplegar manifiesto oficial de ArgoCD
+    - name: Desplegar ArgoCD (Install Manifest)
       become: yes
       become_user: azureuser
       shell: |
@@ -70,7 +101,6 @@
     - name: Exponer ArgoCD vía NodePort (Puerto {{ argocd_nodeport }})
       become: yes
       become_user: azureuser
-      # Parcheamos el servicio para convertirlo de ClusterIP a NodePort y fijamos el puerto
       shell: |
         kubectl patch svc argocd-server -n argocd -p '{"spec": {"type": "NodePort", "ports": [{"port": 443, "targetPort": 8080, "nodePort": {{ argocd_nodeport }}}]}}'
 
@@ -88,4 +118,3 @@
           - "URL de acceso: https://{{ ansible_host }}:{{ argocd_nodeport }}"
           - "Usuario: admin"
           - "Contraseña: {{ argocd_pass.stdout }}"
-          - "IMPORTANTE: Acepta el riesgo de certificado SSL autofirmado en el navegador."
