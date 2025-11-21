@@ -14,13 +14,13 @@
         update_cache: yes
         upgrade: dist
 
-    - name: Instalar dependencias básicas del sistema
+    - name: Instalar dependencias básicas
       apt:
         name:
           - curl
           - git
           - apt-transport-https
-          - conntrack  # Indispensable para K8s
+          - conntrack
           - socat
           - ca-certificates
           - gnupg
@@ -42,34 +42,34 @@
         groups: docker
         append: yes
 
-    # IMPORTANTE: Reiniciar conexión o socket para que aplique el grupo docker
-    # En Ansible, lo solucionamos asegurando que los comandos de minikube 
-    # usen el grupo correcto implícitamente o reiniciando la sesión.
+    # --- [CRITICO] REINICIO DE CONEXIÓN ---
+    # Esto obliga a Ansible a cerrar SSH y volver a abrirlo.
+    # Así, la nueva sesión ya sabe que el usuario pertenece al grupo 'docker'.
+    - name: Reiniciar sesión SSH para aplicar permisos de grupo Docker
+      meta: reset_connection
 
-    # --- INSTALACIÓN DE KUBECTL ---
+    # --- HERRAMIENTAS K8S ---
     - name: Descargar Kubectl
       get_url:
         url: "https://dl.k8s.io/release/{{ kubectl_version }}/bin/linux/{{ arch }}/kubectl"
         dest: /usr/local/bin/kubectl
         mode: '0755'
 
-    # --- INSTALACIÓN DE MINIKUBE ---
     - name: Descargar Minikube
       get_url:
         url: "https://storage.googleapis.com/minikube/releases/{{ minikube_version }}/minikube-linux-{{ arch }}"
         dest: /usr/local/bin/minikube
         mode: '0755'
 
-    # --- INICIAR CLUSTER ---
+    # --- INICIO DE MINIKUBE ---
     - name: Iniciar Minikube con Docker Driver
-      # Ejecutamos como el usuario azureuser, NO como root
       become: yes
       become_user: azureuser
       shell: |
-        minikube start --driver=docker --addons=ingress --addons=metrics-server
+        # Añadimos --ports para mapear el puerto del contenedor al host (VM Azure)
+        minikube start --driver=docker --addons=ingress --addons=metrics-server --ports=30443:30443
       register: minikube_start
       changed_when: "'Done' in minikube_start.stdout"
-      # environment: se asegura de que pille los paths correctos
       environment:
         HOME: /home/azureuser
 
@@ -86,7 +86,7 @@
       become_user: azureuser
       shell: kubectl create namespace argocd --dry-run=client -o yaml | kubectl apply -f -
 
-    - name: Desplegar ArgoCD (Install Manifest)
+    - name: Desplegar ArgoCD
       become: yes
       become_user: azureuser
       shell: |
@@ -95,6 +95,7 @@
     - name: Esperar a que ArgoCD Server esté listo (Timeout 5m)
       become: yes
       become_user: azureuser
+      # El timeout es vital para dar tiempo a que los pods arranquen
       shell: |
         kubectl wait --for=condition=available deployment/argocd-server -n argocd --timeout=300s
 

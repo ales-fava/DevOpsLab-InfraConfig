@@ -1,0 +1,9 @@
+image:
+  repository: ghcr.io/TU_USUARIO_GITHUB_EN_MINUSCULAS/devopslab-mywebapp
+  tag: "latest" # Esto es lo que el pipeline cambiará automáticamente
+  pullPolicy: Always
+
+service:
+  type: NodePort
+  port: 80
+  nodePort: 30080 # Fijamos el puerto para que sea fácil de encontrar
