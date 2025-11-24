@@ -67,7 +67,7 @@
       become_user: azureuser
       shell: |
         # Añadimos --ports para mapear el puerto del contenedor al host (VM Azure)
-        minikube start --driver=docker --addons=ingress --addons=metrics-server --ports=30443:30443
+        minikube start --driver=docker --addons=ingress --addons=metrics-server --ports=30443:30443 --ports=30080:30080
       register: minikube_start
       changed_when: "'Done' in minikube_start.stdout"
       environment:

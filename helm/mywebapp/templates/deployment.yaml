@@ -20,6 +20,14 @@ spec:
           imagePullPolicy: {{ .Values.image.pullPolicy }}
           ports:
             - containerPort: 80
+          volumeMounts:
+            - name: config-volume
+              mountPath: /usr/share/nginx/html/assets/config.json
+              subPath: config.json
       # Importante: Referencia al secreto para poder descargar de GHCR
       imagePullSecrets:
-        - name: ghcr-secret
+        - name: ghcr-secret          
+      volumes:
+        - name: config-volume
+          configMap:
+            name: {{ .Chart.Name }}-config
