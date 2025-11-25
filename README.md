@@ -55,6 +55,7 @@ infra-repo/
     └── mywebapp/       # Chart personalizado para la App Angular
         ├── values.yaml # Configuración de la App (Imagen, Feature Flags)
         └── templates/  # Manifiestos (Deployment, Service, ConfigMap)
+```
 
 ## 💻 4. Requisitos Previos (Pruebas en Local)
 
